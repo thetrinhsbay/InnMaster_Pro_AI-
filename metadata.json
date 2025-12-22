@@ -1,0 +1,8 @@
+{
+  "name": "InnMaster Pro AI - Toàn diện 36 tính năng",
+  "description": "Nền tảng quản lý nhà trọ 4.0 với 6 module cốt lõi, mỗi module 6 chức năng vận hành mượt mà, tích hợp trợ lý Gemini AI tư vấn kinh doanh thời thực.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
