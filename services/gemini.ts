@@ -1,60 +1,98 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
+import { AISmartResponse } from "../types";
 
 export class GeminiService {
   private ai: GoogleGenAI;
-  private readonly MODEL_NAME = 'gemini-3-pro-preview';
-  private readonly THINKING_BUDGET = 32768;
+  private readonly MODEL_NAME = 'gemini-2.0-flash'; // Updated to valid model name
 
   constructor() {
     this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
   }
 
   private getSystemPrompt() {
-    return `Bạn là LeanInn Strategic AI v4.0.
-Triết lý: Áp dụng nguyên tắc 80/20 (Pareto) để tinh gọn vận hành nhà trọ. 
-Nhiệm vụ: 
-1. Loại bỏ các công việc thừa thải không tạo ra giá trị.
-2. Tập trung tối ưu 20% yếu tố (vị trí, loại phòng, đối tượng khách) tạo ra 80% lợi nhuận.
-3. Giải quyết bài toán chống thất thoát dòng tiền và tối ưu hóa lấp đầy.
+    return `Bạn là InnMaster AI v5.0 - Trợ lý vận hành nhà trọ "Action-First".
+MỤC TIÊU: Giúp người quản lý ra quyết định trong 10 giây.
+NGUYÊN TẮC:
+1. Luôn trả lời dưới dạng JSON (không markdown).
+2. "summary": Kết luận ngắn gọn, đi thẳng vào vấn đề (1 dòng).
+3. "details": Tối đa 3 gạch đầu dòng giải thích Why/What.
+4. "actions": Đề xuất 1-3 hành động cụ thể tiếp theo (Nút bấm).
 
-Khi trả lời:
-- Luôn suy nghĩ sâu (Thinking Mode) để tìm ra điểm đòn bẩy.
-- Phải có dữ liệu và giải pháp hành động ngay.
-- Sử dụng mô hình 5W2H khi tư vấn chiến lược.`;
+HÀNH ĐỘNG HỢP LỆ (type):
+- 'navigate': Chuyển module (payload: { moduleId: string })
+- 'filter': Lọc danh sách (payload: { moduleId: string, filter: string })
+- 'modal': Mở modal chức năng (payload: { modalType: string })
+- 'copy': Copy nội dung mẫu (payload: { text: string })
+
+VÍ DỤ CONTEXT: Đang ở module Billing, có 5 khách nợ.
+OUTPUT:
+{
+  "summary": "Cần ưu tiên thu 5 khoản nợ quá hạn (Tổng 12.5tr) để tránh rủi ro dòng tiền.",
+  "details": [
+    "P.302 nợ lâu nhất (15 ngày).",
+    "Tổng nợ tăng 10% so với tháng trước.",
+    "Hôm nay là ngày chốt sổ cuối tuần."
+  ],
+  "actions": [
+    { "label": "Xem danh sách Quá hạn", "type": "filter", "payload": { "moduleId": "billing-ar", "filter": "overdue" }, "icon": "AlertTriangle" },
+    { "label": "Nhắc nợ hàng loạt", "type": "modal", "payload": { "modalType": "bulk-reminder" }, "icon": "Send" }
+  ]
+}`;
   }
 
-  async analyzeBusiness(data: any) {
+  async getStructuredHelp(query: string, context: any): Promise<AISmartResponse> {
     try {
+      this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      
       const response = await this.ai.models.generateContent({
         model: this.MODEL_NAME,
-        contents: `PHÂN TÍCH 80/20 & CHIẾN LƯỢC TINH GỌN: Dựa trên dữ liệu vận hành nhà trọ sau, hãy đề xuất 3 hành động then chốt để tăng lợi nhuận tức thì: ${JSON.stringify(data)}`,
+        contents: `CONTEXT DATA: ${JSON.stringify(context)}. USER QUERY: ${query}`,
         config: {
-          thinkingConfig: { thinkingBudget: this.THINKING_BUDGET },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              summary: { type: Type.STRING },
+              details: { type: Type.ARRAY, items: { type: Type.STRING } },
+              actions: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    label: { type: Type.STRING },
+                    type: { type: Type.STRING, enum: ['navigate', 'filter', 'modal', 'copy'] },
+                    payload: { 
+                      type: Type.OBJECT, 
+                      properties: {
+                        moduleId: { type: Type.STRING },
+                        filter: { type: Type.STRING },
+                        modalType: { type: Type.STRING },
+                        text: { type: Type.STRING }
+                      }
+                    },
+                    icon: { type: Type.STRING }
+                  }
+                }
+              }
+            },
+            required: ["summary", "details", "actions"]
+          },
           systemInstruction: this.getSystemPrompt(),
-          temperature: 0.1,
         }
       });
-      return response.text;
-    } catch (error) {
-      console.error("Gemini Analysis Error:", error);
-      return "LeanInn AI đang tính toán lộ trình tối ưu cho bạn...";
-    }
-  }
 
-  async getQuickHelp(query: string, context?: string) {
-    try {
-      const response = await this.ai.models.generateContent({
-        model: this.MODEL_NAME,
-        contents: `CONTEXT: ${context || 'Lean Dashboard'}. USER QUERY: ${query}`,
-        config: {
-          thinkingConfig: { thinkingBudget: this.THINKING_BUDGET },
-          systemInstruction: this.getSystemPrompt(),
-        }
-      });
-      return response.text;
-    } catch (error) {
-      return "Kết nối AI Strategic bị gián đoạn...";
+      const jsonText = response.text;
+      if (!jsonText) throw new Error("Empty response");
+      return JSON.parse(jsonText) as AISmartResponse;
+
+    } catch (error: any) {
+      console.error("AI Error:", error);
+      return {
+        summary: "Hệ thống đang bận, vui lòng thử lại.",
+        details: ["Không thể kết nối đến bộ não AI.", "Vui lòng kiểm tra API Key."],
+        actions: []
+      };
     }
   }
 }

@@ -7,7 +7,7 @@ import { AIChatWindow } from './components/AIChatWindow';
 import { FunctionModal } from './components/FunctionModal';
 import { MODULES } from './constants';
 import { Icon } from './components/Icons';
-import { SubFunction } from './types';
+import { SubFunction, AIAction } from './types';
 import { storageService } from './services/storage';
 
 const App: React.FC = () => {
@@ -18,7 +18,14 @@ const App: React.FC = () => {
   const [isAIChatOpen, setIsAIChatOpen] = useState(() => 
     storageService.getState('is_chat_open', false)
   );
+  // State cho Sidebar thu gọn
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => 
+    storageService.getState('is_sidebar_collapsed', false)
+  );
+
   const [initialAIQuery, setInitialAIQuery] = useState("");
+  const [aiContextData, setAIContextData] = useState<any>(null);
+  const [pendingAIAction, setPendingAIAction] = useState<AIAction | null>(null);
 
   useEffect(() => {
     storageService.saveState('active_module', activeModuleId);
@@ -28,10 +35,15 @@ const App: React.FC = () => {
     storageService.saveState('is_chat_open', isAIChatOpen);
   }, [isAIChatOpen]);
 
+  useEffect(() => {
+    storageService.saveState('is_sidebar_collapsed', isSidebarCollapsed);
+  }, [isSidebarCollapsed]);
+
   const activeModule = MODULES.find(m => m.id === activeModuleId);
 
-  const openAIChat = (query: string = "") => {
+  const openAIChat = (query: string = "", context?: any) => {
     setInitialAIQuery(query);
+    if (context) setAIContextData(context);
     setIsAIChatOpen(true);
   };
 
@@ -42,35 +54,86 @@ const App: React.FC = () => {
     }
   };
 
+  const handleAIAction = (action: AIAction) => {
+    console.log("Executing AI Action:", action);
+    
+    if (action.type === 'navigate') {
+       if (action.payload.moduleId) {
+          setActiveModuleId(action.payload.moduleId);
+       }
+    } else if (action.type === 'filter' || action.type === 'modal') {
+       if (activeModuleId === action.payload.moduleId || !action.payload.moduleId) {
+          setPendingAIAction(action);
+       } else {
+          setActiveModuleId(action.payload.moduleId);
+          setTimeout(() => setPendingAIAction(action), 500);
+       }
+    } else if (action.type === 'copy') {
+       navigator.clipboard.writeText(action.payload.text);
+       alert("Đã sao chép vào bộ nhớ tạm!");
+    }
+  };
+
+  const handleContextUpdate = (data: any) => {
+     setAIContextData(data);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased selection:bg-blue-100">
       <Sidebar 
         activeModuleId={activeModuleId} 
         onSelectModule={setActiveModuleId} 
         onLogout={handleLogout}
+        isCollapsed={isSidebarCollapsed}
+        onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
       />
 
-      <main className="lg:ml-72 p-8 md:p-12 lg:p-20 pt-10 max-w-[1400px]">
-        {/* Minimal Global Search / Action Bar */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between mb-16 gap-8">
-          <div className="relative group max-w-lg flex-1">
-             <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300">
-                <Icon name="Search" className="w-5 h-5" />
-             </span>
-             <input 
-               type="text" 
-               placeholder="Tìm nhanh: Tên khách, số phòng, hóa đơn..."
-               className="w-full pl-16 pr-6 py-5 bg-white border border-slate-100 rounded-[2rem] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-200 transition-all font-medium text-sm shadow-sm"
-             />
+      <main 
+        className={`transition-all duration-300 p-6 md:p-10 lg:p-16 pt-8 max-w-[1600px] mx-auto ${
+          isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-72'
+        }`}
+      >
+        {/* Global Header Bar */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6 bg-white/50 p-4 rounded-[2.5rem] backdrop-blur-sm border border-white sticky top-4 z-40 shadow-sm">
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center space-x-3 bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm cursor-pointer hover:bg-slate-50 transition-colors">
+               <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center">
+                 <Icon name="Home" className="w-4 h-4" />
+               </div>
+               <div>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Cơ sở hiện tại</p>
+                 <p className="text-sm font-black text-slate-800 tracking-tight leading-none">Căn hộ dịch vụ Quận 1</p>
+               </div>
+               <Icon name="ArrowRight" className="w-4 h-4 text-slate-300 rotate-90 ml-4" />
+            </div>
+
+            <div className="hidden md:block w-px h-10 bg-slate-200"></div>
+
+            <div className="relative group max-w-sm flex-1">
+               <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300">
+                  <Icon name="Search" className="w-4 h-4" />
+               </span>
+               <input 
+                 type="text" 
+                 placeholder="Tìm nhanh: P.302, Nguyễn Văn A..."
+                 className="w-full pl-14 pr-6 py-4 bg-white border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-200 transition-all font-medium text-xs shadow-sm"
+               />
+            </div>
           </div>
           
-          <button 
-            onClick={() => openAIChat("Thực hiện Audit 80/20 cho hệ thống ngay.")}
-            className="flex items-center space-x-3 px-8 py-5 bg-slate-900 text-white font-black rounded-[2rem] hover:shadow-2xl transition-all uppercase text-[10px] tracking-widest active:scale-95"
-          >
-            <Icon name="Sparkles" className="w-4 h-4 text-blue-400" />
-            <span>AI Audit Now</span>
-          </button>
+          <div className="flex items-center space-x-4">
+            <button 
+              onClick={() => openAIChat("Phân tích tổng quan hôm nay")}
+              className={`flex items-center space-x-3 px-6 py-4 rounded-2xl transition-all uppercase text-[10px] tracking-widest active:scale-95 shadow-xl font-black ${
+                isAIChatOpen 
+                  ? 'bg-indigo-600 text-white shadow-indigo-200 ring-4 ring-indigo-100' 
+                  : 'bg-white text-slate-600 border border-slate-100 hover:border-indigo-200 hover:text-indigo-600'
+              }`}
+            >
+              <Icon name="Sparkles" className={`w-4 h-4 ${isAIChatOpen ? 'text-white' : 'text-indigo-500'}`} />
+              <span>AI Core</span>
+            </button>
+          </div>
         </header>
 
         {!activeModuleId ? (
@@ -82,6 +145,9 @@ const App: React.FC = () => {
               onBack={() => setActiveModuleId(null)} 
               onSubFunctionClick={setSelectedSubFunction}
               onAskAI={openAIChat}
+              onUpdateContext={handleContextUpdate}
+              pendingAction={pendingAIAction}
+              onActionComplete={() => setPendingAIAction(null)}
             />
           )
         )}
@@ -97,17 +163,11 @@ const App: React.FC = () => {
       {isAIChatOpen && (
         <AIChatWindow 
           initialQuery={initialAIQuery} 
-          onClose={() => setIsAIChatOpen(false)} 
+          onClose={() => setIsAIChatOpen(false)}
+          contextData={aiContextData}
+          currentModuleId={activeModuleId}
+          onAIAction={handleAIAction}
         />
-      )}
-
-      {!isAIChatOpen && (
-        <button 
-          onClick={() => openAIChat()}
-          className="fixed bottom-12 right-12 w-20 h-20 bg-blue-600 rounded-[2.5rem] flex items-center justify-center text-white shadow-2xl shadow-blue-300 hover:scale-110 active:scale-90 transition-all z-40 border-4 border-white"
-        >
-          <Icon name="Sparkles" className="w-10 h-10" />
-        </button>
       )}
     </div>
   );
